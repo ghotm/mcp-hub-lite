@@ -2,6 +2,7 @@ import { hubManager } from '@services/hub-manager.service.js';
 import { mcpConnectionManager } from '@services/connection/index.js';
 import { eventBus, EventTypes } from '@services/event-bus.service.js';
 import { getServerDescription } from './server-selector.js';
+import { filterToolsByAggregation } from './tool-aggregation.js';
 import type { ServerMetadata } from './resource-generator.js';
 
 /** Minimal payload shape shared by all subscribed events. */
@@ -93,7 +94,12 @@ class ServerMetadataCache {
     if (connectedIndexes.length === 0) return undefined;
 
     // Aggregate tools across all instances (ToolCache already deduplicates by name)
-    const tools = mcpConnectionManager.getToolsByServerName(serverName) || [];
+    // 与 aggregatedTools 聚合白名单过滤保持一致，toolsMap 为过滤后的工具。
+    // 管理视角可通过 web API（GET /web/mcp/servers/:name/tools）查看全部工具。
+    const tools = filterToolsByAggregation(
+      serverName,
+      mcpConnectionManager.getToolsByServerName(serverName) || []
+    );
     const toolsMap: Record<string, string> = {};
     for (const tool of tools) {
       toolsMap[tool.name as string] = (tool.description as string) || '';

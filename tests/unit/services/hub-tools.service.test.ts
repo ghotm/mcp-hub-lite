@@ -473,7 +473,7 @@ describe('HubToolsService', () => {
           args: [],
           env: {},
           headers: {},
-          aggregatedTools: [],
+          aggregatedTools: ['readFile', 'writeFile'],
           timeout: 30000
         },
         instances: [mockInstance],
@@ -502,6 +502,92 @@ describe('HubToolsService', () => {
       await expect(hubToolsService.listToolsInServer({ serverName })).rejects.toThrow(
         `Server not found: ${serverName}`
       );
+    });
+
+    it('should return empty list when aggregatedTools is empty (all tools unavailable)', async () => {
+      // Arrange — server 有连接且有工具，但 aggregatedTools: [] 表示全部不可用
+      const serverName = 'Test Server';
+      const serverId = '1';
+      const mockTools = [
+        { name: 'readFile', description: 'Read file contents', serverName: 'Test Server' },
+        { name: 'writeFile', description: 'Write file contents', serverName: 'Test Server' },
+        { name: 'deleteFile', description: 'Delete files', serverName: 'Test Server' }
+      ];
+
+      const mockInstance = {
+        id: serverId,
+        enabled: true,
+        args: [],
+        env: {},
+        headers: {},
+        tags: {}
+      } as ServerInstance;
+      vi.mocked(hubManager.getServerInstancesByName).mockReturnValue([mockInstance]);
+      vi.mocked(hubManager.getServerByName).mockReturnValue({
+        template: {
+          type: 'stdio' as const,
+          command: 'test-command',
+          args: [],
+          env: {},
+          headers: {},
+          aggregatedTools: [],
+          timeout: 30000
+        },
+        instances: [mockInstance],
+        tagDefinitions: []
+      });
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue(mockTools);
+      vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
+
+      // Act
+      const result = await hubToolsService.listToolsInServer({ serverName });
+
+      // Assert — 不抛错，服务器已连接但无聚合工具
+      expect(result).toEqual({ serverName, tools: [] });
+    });
+
+    it('should only return whitelisted tools when aggregatedTools is a partial list', async () => {
+      // Arrange — aggregatedTools 仅包含 readFile，writeFile 应被过滤
+      const serverName = 'Test Server';
+      const serverId = '1';
+      const mockTools = [
+        { name: 'readFile', description: 'Read file contents', serverName: 'Test Server' },
+        { name: 'writeFile', description: 'Write file contents', serverName: 'Test Server' }
+      ];
+
+      const mockInstance = {
+        id: serverId,
+        enabled: true,
+        args: [],
+        env: {},
+        headers: {},
+        tags: {}
+      } as ServerInstance;
+      vi.mocked(hubManager.getServerInstancesByName).mockReturnValue([mockInstance]);
+      vi.mocked(hubManager.getServerByName).mockReturnValue({
+        template: {
+          type: 'stdio' as const,
+          command: 'test-command',
+          args: [],
+          env: {},
+          headers: {},
+          aggregatedTools: ['readFile'],
+          timeout: 30000
+        },
+        instances: [mockInstance],
+        tagDefinitions: []
+      });
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue(mockTools);
+      vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
+
+      // Act
+      const result = await hubToolsService.listToolsInServer({ serverName });
+
+      // Assert — 只返回 readFile，writeFile 被过滤
+      expect(result).toEqual({
+        serverName,
+        tools: [{ name: 'readFile', description: 'Read file contents', serverName: 'Test Server' }]
+      });
     });
   });
 
@@ -542,7 +628,7 @@ describe('HubToolsService', () => {
           args: [],
           env: {},
           headers: {},
-          aggregatedTools: [],
+          aggregatedTools: ['readFile', 'writeFile'],
           timeout: 30000
         },
         instances: [mockInstance],
@@ -588,7 +674,7 @@ describe('HubToolsService', () => {
           args: [],
           env: {},
           headers: {},
-          aggregatedTools: [],
+          aggregatedTools: ['readFile'],
           timeout: 30000
         },
         instances: [mockInstance],
@@ -597,6 +683,52 @@ describe('HubToolsService', () => {
       vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue(mockTools);
       vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
       vi.mocked(mcpConnectionManager.getTools).mockReturnValue(mockTools);
+
+      // Act
+      const tool = await hubToolsService.getTool({ serverName, toolName });
+
+      // Assert
+      expect(tool).toBeUndefined();
+    });
+
+    it('should return undefined when aggregatedTools is empty (all tools unavailable)', async () => {
+      // Arrange — aggregatedTools: [] 表示全部不可用，无论 getToolsByServerName 返回什么
+      const serverName = 'Test Server';
+      const serverId = '1';
+      const toolName = 'readFile';
+      const mockTools = [
+        {
+          name: 'readFile',
+          description: 'Read file contents',
+          inputSchema: { type: 'object' },
+          serverName: 'Test Server'
+        }
+      ];
+
+      const mockInstance = {
+        id: serverId,
+        enabled: true,
+        args: [],
+        env: {},
+        headers: {},
+        tags: {}
+      } as ServerInstance;
+      vi.mocked(hubManager.getServerInstancesByName).mockReturnValue([mockInstance]);
+      vi.mocked(hubManager.getServerByName).mockReturnValue({
+        template: {
+          type: 'stdio' as const,
+          command: 'test-command',
+          args: [],
+          env: {},
+          headers: {},
+          aggregatedTools: [],
+          timeout: 30000
+        },
+        instances: [mockInstance],
+        tagDefinitions: []
+      });
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue(mockTools);
+      vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
 
       // Act
       const tool = await hubToolsService.getTool({ serverName, toolName });
@@ -633,12 +765,20 @@ describe('HubToolsService', () => {
           args: [],
           env: {},
           headers: {},
-          aggregatedTools: [],
+          aggregatedTools: ['readFile'],
           timeout: 30000
         },
         instances: [mockInstance],
         tagDefinitions: []
       });
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue([
+        {
+          name: 'readFile',
+          description: 'Read file contents',
+          inputSchema: { type: 'object' },
+          serverName: 'Test Server'
+        }
+      ]);
       vi.mocked(mcpConnectionManager.callTool).mockResolvedValue(expectedResult);
 
       // Act
@@ -659,11 +799,62 @@ describe('HubToolsService', () => {
       const serverName = 'Non-existent Server';
       vi.mocked(hubManager.getServerInstancesByName).mockReturnValue([]);
       vi.mocked(hubManager.getServerByName).mockReturnValue(undefined);
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue([]);
 
       // Act & Assert
       await expect(
         hubToolsService.callTool({ serverName, toolName: 'readFile', toolArgs: {} })
-      ).rejects.toThrow(`Server not found: ${serverName}`);
+      ).rejects.toThrow(`Tool 'readFile' not found in server '${serverName}'`);
+    });
+
+    it('should throw tool not found error when tool is not in aggregatedTools whitelist', async () => {
+      // Arrange — 服务器存在且有连接，但 aggregatedTools 不包含请求的工具名
+      const serverName = 'Test Server';
+      const serverId = '1';
+      const serverIndex = 0;
+      const mockInstance = {
+        id: serverId,
+        index: serverIndex,
+        enabled: true,
+        args: [],
+        env: {},
+        headers: {},
+        tags: {}
+      } as ServerInstance;
+      vi.mocked(hubManager.getServerInstancesByName).mockReturnValue([mockInstance]);
+      vi.mocked(hubManager.getServerByName).mockReturnValue({
+        template: {
+          type: 'stdio' as const,
+          command: 'test-command',
+          args: [],
+          env: {},
+          headers: {},
+          aggregatedTools: ['writeFile'],
+          timeout: 30000
+        },
+        instances: [mockInstance],
+        tagDefinitions: []
+      });
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue([
+        {
+          name: 'readFile',
+          description: 'Read file contents',
+          inputSchema: { type: 'object' },
+          serverName: 'Test Server'
+        },
+        {
+          name: 'writeFile',
+          description: 'Write file contents',
+          inputSchema: { type: 'object' },
+          serverName: 'Test Server'
+        }
+      ]);
+      vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
+
+      // Act & Assert
+      await expect(
+        hubToolsService.callTool({ serverName, toolName: 'readFile', toolArgs: {} })
+      ).rejects.toThrow(`Tool 'readFile' not found in server '${serverName}'`);
     });
   });
 
@@ -792,7 +983,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: ['readFile', 'writeFile', 'deleteFile'],
               timeout: 30000,
               tags: {}
             },
@@ -835,7 +1026,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: ['readFile', 'getEnv', 'deleteFile'],
               timeout: 30000,
               tags: {}
             },
@@ -884,7 +1075,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: ['envSetter', 'getEnv', 'deleteFile'],
               timeout: 30000,
               tags: {}
             },
@@ -934,7 +1125,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: Array.from({ length: 10 }, (_, i) => `tool${i}`),
               timeout: 30000,
               tags: {}
             },
@@ -977,7 +1168,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: Array.from({ length: 10 }, (_, i) => `tool${i}`),
               timeout: 30000,
               tags: {}
             },
@@ -1020,7 +1211,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: ['readFile'],
               timeout: 30000,
               tags: {}
             },
@@ -1060,7 +1251,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: ['readFile'],
               timeout: 30000,
               tags: {}
             },
@@ -1100,7 +1291,7 @@ describe('HubToolsService', () => {
               args: [],
               env: {},
               headers: {},
-              aggregatedTools: [],
+              aggregatedTools: Array.from({ length: 15 }, (_, i) => `tool${i}`),
               timeout: 30000,
               tags: {}
             },
@@ -1129,6 +1320,47 @@ describe('HubToolsService', () => {
       const result = await hubToolsService.searchTools('file', 100);
 
       expect(result['Server 1'].tools.length).toBeLessThanOrEqual(10);
+    });
+
+    it('should skip server when aggregatedTools is empty (all tools unavailable)', async () => {
+      // Arrange — aggregatedTools: [] 表示全部不可用，searchTools 应跳过该服务器
+      const mockServers = [
+        {
+          name: 'Server 1',
+          config: {
+            template: {
+              type: 'stdio' as const,
+              command: 'test',
+              args: [],
+              env: {},
+              headers: {},
+              aggregatedTools: [],
+              timeout: 30000,
+              tags: {}
+            },
+            instances: [
+              { id: '1', index: 0, enabled: true, args: [], env: {}, headers: {}, tags: {} }
+            ],
+            tagDefinitions: []
+          }
+        }
+      ];
+      const mockTools = [
+        { name: 'readFile', description: 'Read file contents', serverName: 'Server 1' }
+      ];
+
+      vi.mocked(hubManager.getAllServers).mockReturnValue(mockServers);
+      vi.mocked(hubManager.getServerInstancesByName).mockReturnValue(
+        mockServers[0].config.instances
+      );
+      vi.mocked(hubManager.getServerByName).mockReturnValue(mockServers[0].config);
+      vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue(mockTools);
+
+      const result = await hubToolsService.searchTools('file');
+
+      // Assert — 服务器虽然存在且有工具，但 aggregatedTools 为空，结果中不应包含该服务器
+      expect(result).toEqual({});
     });
   });
 
@@ -1271,7 +1503,7 @@ describe('HubToolsService', () => {
           args: [],
           env: {},
           headers: {},
-          aggregatedTools: [],
+          aggregatedTools: ['testTool'],
           timeout: 30000
         },
         instances: [
@@ -1356,7 +1588,7 @@ describe('HubToolsService', () => {
           args: [],
           env: {},
           headers: {},
-          aggregatedTools: [],
+          aggregatedTools: ['testTool'],
           timeout: 30000
         },
         instances: [mockInstance],

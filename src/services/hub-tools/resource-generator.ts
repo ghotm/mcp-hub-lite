@@ -7,6 +7,7 @@ import type { Resource } from '@shared-models/resource.model.js';
 import type { ServerStatus } from '@shared-types/common.types.js';
 import { hasValidId, getServerDescription } from './server-selector.js';
 import { serverMetadataCache } from './server-metadata-cache.js';
+import { filterToolsByAggregation } from './tool-aggregation.js';
 
 /**
  * Maps Hub URI to original MCP URI for resource forwarding.
@@ -358,7 +359,13 @@ export async function readResource(
         throw new Error(`Server not found or not connected: ${serverName}`);
       }
       if (listType === 'tools') {
-        return mcpConnectionManager.getToolsByServerName(serverName) as unknown as Resource[];
+        // 与 aggregatedTools 聚合白名单过滤保持一致，返回过滤后的工具列表。
+        // 资源层（hub://servers/{name}/tools）与系统工具使用相同的 filterToolsByAggregation 逻辑。
+        // 管理视角可通过 web API（GET /web/mcp/servers/:name/tools）查看全部工具。
+        return filterToolsByAggregation(
+          serverName,
+          mcpConnectionManager.getToolsByServerName(serverName)
+        ) as unknown as Resource[];
       } else {
         return mcpConnectionManager.getResourcesByName(serverName);
       }

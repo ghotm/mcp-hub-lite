@@ -5,6 +5,7 @@ import type { Tool, ToolSummary } from '@shared-models/tool.model.js';
 import type { Resource } from '@shared-models/resource.model.js';
 import { eventBus, EventTypes } from './event-bus.service.js';
 import { generateGatewayToolsList } from './gateway/tool-list-generator.js';
+import { filterToolsByAggregation } from './hub-tools/tool-aggregation.js';
 import { logger, LOG_MODULES } from '@utils/logger/index.js';
 import { stringifyForLogging } from '@utils/json-utils.js';
 import { normalizeToolName } from '@utils/name-converter.js';
@@ -190,11 +191,14 @@ export class HubToolsService {
 
     // Use server name level cache to get tools directly without triggering instance selection
     // This avoids tag-match-unique errors for multi-instance servers when listing tools
-    const tools = mcpConnectionManager.getToolsByServerName(args.serverName);
+    const allTools = mcpConnectionManager.getToolsByServerName(args.serverName);
 
-    if (tools.length === 0) {
+    if (allTools.length === 0) {
       throw new Error(`Server not found: ${args.serverName}`);
     }
+
+    // Apply aggregatedTools filter to only expose whitelisted tools
+    const tools = filterToolsByAggregation(args.serverName, allTools);
 
     // Convert to ToolSummary format (without inputSchema)
     const toolSummaries: ToolSummary[] = tools.map((tool) => ({
@@ -244,10 +248,12 @@ export class HubToolsService {
 
     // Use server name level cache to get tools directly without triggering instance selection
     // This avoids tag-match-unique errors for multi-instance servers when getting tool details
-    const tools = mcpConnectionManager.getToolsByServerName(args.serverName);
-    if (tools.length === 0) {
+    const allTools = mcpConnectionManager.getToolsByServerName(args.serverName);
+    if (allTools.length === 0) {
       throw new Error(`Server not found: ${args.serverName}`);
     }
+    // Apply aggregatedTools filter to only expose whitelisted tools
+    const tools = filterToolsByAggregation(args.serverName, allTools);
     return tools.find((t) => normalizeToolName(t.name) === normalizeToolName(args.toolName));
   }
 
@@ -543,7 +549,8 @@ export class HubToolsService {
     );
 
     // Validate tool exists using server-name-level aggregation (no instance selection needed)
-    const aggregatedTools = mcpConnectionManager.getToolsByServerName(serverName);
+    const allTools = mcpConnectionManager.getToolsByServerName(serverName);
+    const aggregatedTools = filterToolsByAggregation(serverName, allTools);
     const matchedTool = aggregatedTools.find(
       (tool) => normalizeToolName(tool.name) === normalizeToolName(toolName)
     );
@@ -822,7 +829,11 @@ export class HubToolsService {
       }
 
       const description = getServerDescription(server.config, server.name);
-      const tools = mcpConnectionManager.getToolsByServerName(server.name);
+      const allTools = mcpConnectionManager.getToolsByServerName(server.name);
+      if (allTools.length === 0) {
+        continue;
+      }
+      const tools = filterToolsByAggregation(server.name, allTools);
       if (tools.length === 0) {
         continue;
       }
