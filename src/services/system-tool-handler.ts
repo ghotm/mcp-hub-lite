@@ -58,6 +58,13 @@ export class SystemToolHandler {
             throw new McpError(-32802, 'serverName is required');
           }
           result = await hubToolsService.getTool(getToolArgs);
+          if (!result) {
+            // 工具不存在或未在 aggregatedTools 聚合白名单中
+            throw new McpError(
+              -32801,
+              `Tool "${getToolArgs.toolName}" not found on server "${getToolArgs.serverName}"`
+            );
+          }
           break;
         }
         case CALL_TOOL_TOOL: {

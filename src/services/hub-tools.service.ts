@@ -404,7 +404,14 @@ export class HubToolsService {
           break;
         }
         case GET_TOOL_TOOL: {
-          result = await this.getTool(toolArgs as GetToolParams);
+          const getToolArgs = toolArgs as GetToolParams;
+          result = await this.getTool(getToolArgs);
+          if (!result) {
+            // 工具不存在或未在 aggregatedTools 聚合白名单中
+            throw new Error(
+              `Tool "${getToolArgs.toolName}" not found on server "${getToolArgs.serverName}"`
+            );
+          }
           break;
         }
         case CALL_TOOL_TOOL: {
