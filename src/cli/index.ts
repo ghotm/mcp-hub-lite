@@ -6,8 +6,9 @@
  */
 
 import { Command } from 'commander';
+import { realpathSync } from 'node:fs';
 import { argv } from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { getAppVersion } from '@utils/version.js';
 import { startCommand } from '@cli/commands/start.js';
 import { stopCommand } from '@cli/commands/stop.js';
@@ -20,37 +21,35 @@ import { installCommand } from '@cli/commands/install.js';
 import { useGuideCommand } from '@cli/commands/use-guide.js';
 
 /**
- * Check if the CLI is being executed directly (vs imported as module)
- * Handles Windows/npm symlink path resolution issues by comparing package paths
+ * Check if the CLI is being executed directly (vs imported as module).
+ *
+ * Compares the canonical (symlink-resolved) path of the executed entry
+ * (`argv[1]`) against the real path of this module (`import.meta.url`).
+ * This handles npm `.bin` shims: running `mcp-hub-lite` executes the
+ * symlink at `node_modules/.bin/mcp-hub-lite`, while `import.meta.url`
+ * points to the real file — resolving both via `realpathSync` makes them
+ * comparable. Without this, the CLI silently exits without parsing args
+ * when invoked through a symlink.
+ *
+ * @param entryPath - Optional override for tests; defaults to `argv[1]`.
+ * @param moduleUrl - Optional override for tests; defaults to `import.meta.url`.
  */
-function isCliEntry(): boolean {
-  if (!argv[1]) {
+export function isCliEntry(
+  entryPath: string | undefined = argv[1],
+  moduleUrl: string = import.meta.url
+): boolean {
+  if (!entryPath) {
     return false;
   }
-  const currentUrl = import.meta.url;
-  const argvUrl = pathToFileURL(argv[1]).href;
-
-  // Extract pathname and normalize for comparison
-  const normalizePath = (url: string): string => {
-    // Convert file:// URL to pathname and normalize separators
-    const urlObj = new URL(url);
-    return urlObj.pathname.replace(/\//g, '/');
-  };
-
-  const currentPath = normalizePath(currentUrl);
-  const argvPath = normalizePath(argvUrl);
-
-  // Extract package path suffix for comparison
-  // Both paths contain mcp-hub-lite/dist, extract that common suffix
-  const getPackagePath = (path: string): string | null => {
-    const match = path.match(/mcp-hub-lite[/\\]dist/);
-    return match ? match[0] : null;
-  };
-
-  const currentPackagePath = getPackagePath(currentPath);
-  const argvPackagePath = getPackagePath(argvPath);
-
-  return currentPackagePath !== null && currentPackagePath === argvPackagePath;
+  try {
+    // Resolve symlinks: entryPath may be a npm .bin symlink while
+    // moduleUrl is the real file path. Compare canonical paths.
+    const currentReal = realpathSync(fileURLToPath(moduleUrl));
+    const argvReal = realpathSync(entryPath);
+    return currentReal === argvReal;
+  } catch {
+    return false;
+  }
 }
 
 /**
