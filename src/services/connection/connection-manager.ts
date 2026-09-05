@@ -1343,10 +1343,25 @@ export class McpConnectionManager {
     }
 
     try {
-      const result = await client.callTool({
-        name: toolName,
-        arguments: args
-      });
+      // 从服务器配置读取超时时间（毫秒），传递给 SDK 协议层请求。
+      // 用户配置的 timeout 仅作用于 transport 层 HTTP 请求超时，
+      // 若不在此处显式传递，SDK 协议层将使用默认的 60000ms per-request 超时。
+      //
+      // 两层超时默认值差异（既有行为，非本次引入）：
+      // - transport 层 fallback 为 30000ms（transport-factory.ts: server.timeout || 30000）
+      // - SDK 协议层 fallback 为 60000ms（此处不传 timeout 参数时 SDK 内置默认值）
+      // 配置了 timeout 时两层使用同一值。
+      const serverConfig = hubManager.getServerByName(serverName);
+      const requestTimeout = serverConfig?.template.timeout;
+
+      const result = await client.callTool(
+        {
+          name: toolName,
+          arguments: args
+        },
+        undefined,
+        requestTimeout ? { timeout: requestTimeout } : undefined
+      );
       return result;
     } catch (error) {
       logger.error(
