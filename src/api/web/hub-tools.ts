@@ -187,12 +187,16 @@ export async function webHubToolsRoutes(fastify: FastifyInstance) {
       const { serverName, toolName } = request.params;
       const { toolArgs, requestOptions } = CallToolBodySchema.parse(request.body);
 
-      const result = await hubToolsService.callTool({
-        serverName,
-        toolName,
-        toolArgs,
-        requestOptions
-      });
+      const result = await hubToolsService.callTool(
+        {
+          serverName,
+          toolName,
+          toolArgs,
+          requestOptions
+        },
+        // 管理界面调用绕过 aggregatedTools 聚合过滤（管理视角可调用全部工具）
+        { bypassAggregation: true }
+      );
       return result;
     } catch (error) {
       if (error instanceof Error && error.message.includes('not found')) {

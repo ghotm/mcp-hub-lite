@@ -856,6 +856,71 @@ describe('HubToolsService', () => {
         hubToolsService.callTool({ serverName, toolName: 'readFile', toolArgs: {} })
       ).rejects.toThrow(`Tool 'readFile' not found in server '${serverName}'`);
     });
+
+    it('should allow calling non-whitelisted tool when bypassAggregation is true (management UI path)', async () => {
+      // Arrange — 服务器存在且有连接，aggregatedTools 不包含 readFile，但管理界面绕过过滤
+      const serverName = 'Test Server';
+      const serverId = '1';
+      const serverIndex = 0;
+      const toolName = 'readFile';
+      const toolArgs = { path: '/test/file.txt' };
+      const expectedResult = { content: 'Test file content' };
+
+      const mockInstance = {
+        id: serverId,
+        index: serverIndex,
+        enabled: true,
+        args: [],
+        env: {},
+        headers: {},
+        tags: {}
+      } as ServerInstance;
+      vi.mocked(hubManager.getServerInstancesByName).mockReturnValue([mockInstance]);
+      vi.mocked(hubManager.getServerByName).mockReturnValue({
+        template: {
+          type: 'stdio' as const,
+          command: 'test-command',
+          args: [],
+          env: {},
+          headers: {},
+          aggregatedTools: ['writeFile'],
+          timeout: 30000
+        },
+        instances: [mockInstance],
+        tagDefinitions: []
+      });
+      vi.mocked(mcpConnectionManager.getToolsByServerName).mockReturnValue([
+        {
+          name: 'readFile',
+          description: 'Read file contents',
+          inputSchema: { type: 'object' },
+          serverName: 'Test Server'
+        },
+        {
+          name: 'writeFile',
+          description: 'Write file contents',
+          inputSchema: { type: 'object' },
+          serverName: 'Test Server'
+        }
+      ]);
+      vi.mocked(mcpConnectionManager.getConnectedIndexes).mockReturnValue([0]);
+      vi.mocked(mcpConnectionManager.callTool).mockResolvedValue(expectedResult);
+
+      // Act — 管理界面路径传入 bypassAggregation: true，未聚合工具应可调用
+      const result = await hubToolsService.callTool(
+        { serverName, toolName, toolArgs },
+        { bypassAggregation: true }
+      );
+
+      // Assert
+      expect(result).toEqual(expectedResult);
+      expect(mcpConnectionManager.callTool).toHaveBeenCalledWith(
+        serverName,
+        serverIndex,
+        toolName,
+        toolArgs
+      );
+    });
   });
 
   describe('listAllTools', () => {

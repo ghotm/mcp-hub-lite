@@ -488,7 +488,10 @@ export class HubToolsService {
    * @returns {Promise<unknown>} Tool execution result as returned by the server
    * @throws {Error} If the server is not found, not connected, or tool execution fails
    */
-  async callTool(args: CallToolParams): Promise<unknown> {
+  async callTool(
+    args: CallToolParams,
+    options?: { bypassAggregation?: boolean }
+  ): Promise<unknown> {
     let { serverName, toolName } = args;
     // Support both toolArgs and arguments for backward compatibility
     let toolArgs: Record<string, unknown> = (args.toolArgs || args.arguments || {}) as Record<
@@ -557,7 +560,12 @@ export class HubToolsService {
 
     // Validate tool exists using server-name-level aggregation (no instance selection needed)
     const allTools = mcpConnectionManager.getToolsByServerName(serverName);
-    const aggregatedTools = filterToolsByAggregation(serverName, allTools);
+    // 管理界面调用（如 web 工具详情页）需要绕过聚合白名单过滤，
+    // 管理视角应能调用全部已连接服务器的工具（与 /web/mcp/servers/:id/tools 显示全部工具的语义一致）。
+    // 网关 AI 路径（call_tool 系统工具）不传此选项，保持 aggregatedTools 过滤。
+    const aggregatedTools = options?.bypassAggregation
+      ? allTools
+      : filterToolsByAggregation(serverName, allTools);
     const matchedTool = aggregatedTools.find(
       (tool) => normalizeToolName(tool.name) === normalizeToolName(toolName)
     );
