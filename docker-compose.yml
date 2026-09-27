@@ -1,0 +1,31 @@
+services:
+  mcp-hub-lite:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    #image: mcp-hub-lite:latest
+    container_name: mcp-hub-lite
+    restart: unless-stopped
+    ports:
+      - '${PORT:-7788}:7788'
+    volumes:
+      - ./data/.mcp-hub-lite/config:/home/node/.mcp-hub-lite/config
+      - ./data/mcp-hub-logs:/app/logs
+      - ./data/workspace:/workspace
+      - ./data/.cache:/home/node/.cache
+    environment:
+      - PORT=${PORT:-7788}
+      - HOST=${HOST:-0.0.0.0}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SESSION_DEBUG=${SESSION_DEBUG:-false}
+      - MCP_COMM_DEBUG=${MCP_COMM_DEBUG:-false}
+      - LOG_JSON_PRETTY=${LOG_JSON_PRETTY:-false}
+      - NODE_ENV=${NODE_ENV:-production}
+    env_file:
+      - .env
+    healthcheck:
+      test: ['CMD', 'sh', '-c', 'curl -fsS http://localhost:7788/web/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
