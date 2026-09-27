@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { TransportFactory } from '@utils/transports/transport-factory.js';
 import { UnauthorizedError, auth } from '@modelcontextprotocol/sdk/client/auth.js';
@@ -24,6 +25,13 @@ import { configManager } from '@config/config-manager.js';
 import type { ServerStatus } from './types.js';
 import { ToolCache } from './tool-cache.js';
 import { getCompositeKey } from '@utils/composite-key.js';
+
+/**
+ * 连续重连失败阈值：同一连接的 session 失效自动重连连续失败达到该次数后，
+ * 放弃自动恢复并抛出最终失败错误。计数跨多次调用累计，
+ * 直到某次重连成功才清零（下次再 session 失效仍走恢复流程）。
+ */
+const MAX_CONSECUTIVE_RECONNECT_FAILURES = 3;
 
 /**
  * Manages MCP (Model Context Protocol) server connections and provides a unified interface
@@ -56,6 +64,13 @@ export class McpConnectionManager {
   private resourceCache: Map<string, Resource[]> = new Map();
   // Track composite keys by server name
   private serverNameToCompositeKeys: Map<string, Set<string>> = new Map();
+  // 下游服务器完整配置缓存（key=compositeKey），供 session 失效后自动重连复用
+  private serverConfigCache: Map<string, ServerRuntimeConfig & Partial<ServerInstanceConfig>> =
+    new Map();
+  // 正在自动重连的 compositeKey 集合，用于并发互斥保护（同一连接只允许一个重连流程）
+  private reconnectingKeys: Set<string> = new Set();
+  // 连续重连失败计数（key=compositeKey，跨多次调用累计，重连成功时清零）
+  private consecutiveReconnectFailures: Map<string, number> = new Map();
 
   constructor() {
     // Listen for server deletion events and automatically disconnect
@@ -208,6 +223,9 @@ export class McpConnectionManager {
         if (capabilities?.logging) {
           await this.requestLoggingFromServer(compositeKey, client);
         }
+
+        // 12. 缓存完整服务器配置，供下游 session 失效后自动重连复用
+        this.serverConfigCache.set(compositeKey, server);
 
         return true;
       } catch (error) {
@@ -859,6 +877,8 @@ export class McpConnectionManager {
     } finally {
       this.clients.delete(compositeKey);
       this.transports.delete(compositeKey);
+      // 清理缓存的服务器配置（disconnect 后配置缓存一并失效，下次连接成功会重新缓存）
+      this.serverConfigCache.delete(compositeKey);
       this._toolCache.clearTools(serverName, serverIndex);
       this.resourceCache.delete(compositeKey);
       this._toolCache.removeNameMappingById(compositeKey);
@@ -1343,33 +1363,133 @@ export class McpConnectionManager {
     }
 
     try {
-      // 从服务器配置读取超时时间（毫秒），传递给 SDK 协议层请求。
-      // 用户配置的 timeout 仅作用于 transport 层 HTTP 请求超时，
-      // 若不在此处显式传递，SDK 协议层将使用默认的 60000ms per-request 超时。
-      //
-      // 两层超时默认值差异（既有行为，非本次引入）：
-      // - transport 层 fallback 为 30000ms（transport-factory.ts: server.timeout || 30000）
-      // - SDK 协议层 fallback 为 60000ms（此处不传 timeout 参数时 SDK 内置默认值）
-      // 配置了 timeout 时两层使用同一值。
-      const serverConfig = hubManager.getServerByName(serverName);
-      const requestTimeout = serverConfig?.template.timeout;
-
-      const result = await client.callTool(
-        {
-          name: toolName,
-          arguments: args
-        },
-        undefined,
-        requestTimeout ? { timeout: requestTimeout } : undefined
-      );
-      return result;
+      const requestTimeout = this.getRequestTimeout(serverName);
+      return await this.doCallTool(client, toolName, args, requestTimeout);
     } catch (error) {
       logger.error(
         `Failed to call tool ${toolName} on server [${compositeKey}]:`,
         error,
         LOG_MODULES.CONNECTION_MANAGER
       );
+      if (this.isSessionInvalidError(error)) {
+        // 下游 session 失效：执行自动重连，成功后重试一次原调用
+        return await this.recoverSession(serverName, serverIndex, toolName, args);
+      }
+      // 其它错误保持原行为：原样抛出，由上层统一包装
       throw error;
+    }
+  }
+
+  /**
+   * 从服务器配置读取请求超时时间（毫秒）。
+   *
+   * 用户配置的 timeout 仅作用于 transport 层 HTTP 请求超时，
+   * 若不在此处显式传递，SDK 协议层将使用默认的 60000ms per-request 超时。
+   *
+   * 两层超时默认值差异（既有行为，非本次引入）：
+   * - transport 层 fallback 为 30000ms（transport-factory.ts: server.timeout || 30000）
+   * - SDK 协议层 fallback 为 60000ms（此处不传 timeout 参数时 SDK 内置默认值）
+   * 配置了 timeout 时两层使用同一值。
+   */
+  private getRequestTimeout(serverName: string): number | undefined {
+    const serverConfig = hubManager.getServerByName(serverName);
+    return serverConfig?.template.timeout;
+  }
+
+  /**
+   * 实际执行工具调用（供首次调用与 session 失效重连后的重试复用）。
+   */
+  private async doCallTool(
+    client: Client,
+    toolName: string,
+    args: Record<string, unknown>,
+    requestTimeout: number | undefined
+  ): Promise<unknown> {
+    const result = await client.callTool(
+      {
+        name: toolName,
+        arguments: args
+      },
+      undefined,
+      requestTimeout ? { timeout: requestTimeout } : undefined
+    );
+    return result;
+  }
+
+  /**
+   * 判断错误是否为下游 session 失效（下游重启/会话过期后以旧 Mcp-Session-Id 发 POST，
+   * 下游返回 HTTP 400 + JSON-RPC -32000 "Bad Request: No valid session ID provided"，
+   * SDK StreamableHTTPClientTransport 将其包装为 StreamableHTTPError 抛出）。
+   *
+   * 采用双重判断：错误必须是 SDK 的 StreamableHTTPError，且消息包含会话失效特征。
+   */
+  private isSessionInvalidError(error: unknown): boolean {
+    if (!(error instanceof StreamableHTTPError)) {
+      return false;
+    }
+    const message = error.message;
+    return typeof message === 'string' && message.includes('No valid session ID provided');
+  }
+
+  /**
+   * 下游 session 失效后的自动恢复流程：
+   *
+   * 1. 并发保护：同一连接正在重连时，其它并发调用直接抛"稍后重试"错误，不重复触发重连。
+   * 2. disconnect + connect 重建 session（connect 内部自带 maxRetries 退避重试）。
+   * 3. 重连成功 → 该连接连续失败计数清零，并重试一次原调用。
+   * 4. 重连失败 → 连续失败计数累计（跨多次调用），达到阈值后抛最终失败错误（不再无限重连）。
+   */
+  private async recoverSession(
+    serverName: string,
+    serverIndex: number,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const compositeKey = getCompositeKey(serverName, serverIndex);
+
+    // 并发保护：同一连接正在重连时，其它并发调用直接抛错，不重复触发重连
+    if (this.reconnectingKeys.has(compositeKey)) {
+      throw new Error(`Server [${compositeKey}] 正在重连，请稍后重试`);
+    }
+    this.reconnectingKeys.add(compositeKey);
+
+    try {
+      // 读取缓存的完整服务器配置用于重建连接
+      const server = this.serverConfigCache.get(compositeKey);
+      if (!server) {
+        // 无缓存配置（极端情况，如配置缓存被清理）→ 无法重建连接，抛明确错误
+        throw new Error(`Server [${compositeKey}] session 失效且无缓存配置，无法自动重连`);
+      }
+
+      await this.disconnect(serverName, serverIndex);
+      const ok = await this.connect(serverName, serverIndex, server);
+      if (ok) {
+        // 重连成功 → 连续失败计数清零（下次再 session 失效仍走恢复流程）
+        this.consecutiveReconnectFailures.delete(compositeKey);
+        const client = this.clients.get(compositeKey);
+        if (!client) {
+          throw new Error(`Server [${compositeKey}] 重连后客户端不可用`);
+        }
+        // 重试一次原调用（与首次调用一致地取模板超时时间）
+        const requestTimeout = this.getRequestTimeout(serverName);
+        return await this.doCallTool(client, toolName, args, requestTimeout);
+      }
+
+      // 重连失败：连续失败计数累计
+      const failures = (this.consecutiveReconnectFailures.get(compositeKey) ?? 0) + 1;
+      this.consecutiveReconnectFailures.set(compositeKey, failures);
+      if (failures >= MAX_CONSECUTIVE_RECONNECT_FAILURES) {
+        // 已达阈值 → 抛最终失败错误（计数清除，下次重新累计）
+        this.consecutiveReconnectFailures.delete(compositeKey);
+        throw new Error(
+          `Server [${compositeKey}] session 失效后连续重连失败 ${failures} 次，放弃自动恢复`
+        );
+      }
+      throw new Error(
+        `Server [${compositeKey}] session 失效，自动重连失败（第 ${failures}/${MAX_CONSECUTIVE_RECONNECT_FAILURES} 次）`
+      );
+    } finally {
+      this.reconnectingKeys.delete(compositeKey);
     }
   }
 
