@@ -16,6 +16,8 @@ export interface ServerRuntimeConfig {
   url?: string;
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  /** 本地进程的工作目录（仅 stdio / streamable-http-local 生效） */
+  cwd?: string;
   timeout?: number;
   enabled?: boolean;
   aggregatedTools?: string[];
@@ -126,6 +128,8 @@ export const ServerInstanceSchema = ServerInstanceMetadataSchema.merge(
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).default({}),
   headers: z.record(z.string(), z.string()).default({}),
+  // 本地进程工作目录实例级覆盖（仅 stdio / streamable-http-local 生效）
+  cwd: z.string().optional(),
   proxy: z
     .object({
       url: z.string()
@@ -153,6 +157,8 @@ export const ServerInstanceUpdateSchema = z.object({
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  // 本地进程工作目录（可选覆盖）
+  cwd: z.string().optional(),
   proxy: z
     .object({
       url: z.string()
@@ -182,6 +188,8 @@ export const ServerTemplateSchema = ServerEnvConfigSchema.extend({
     .default(TransportType.STDIO),
   timeout: z.number().default(60000),
   url: z.string().optional(),
+  // 本地进程默认工作目录（可被实例级 cwd 覆盖）
+  cwd: z.string().optional(),
   aggregatedTools: z.array(z.string()).default([]),
   description: z.string().optional(),
   // Instance selection strategy for multi-instance servers

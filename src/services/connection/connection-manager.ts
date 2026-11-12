@@ -504,33 +504,9 @@ export class McpConnectionManager {
       };
     }
 
-    // Add log listeners
-    if ('onstdout' in transport) {
-      transport.onstdout = (data: string) => {
-        const trimmedData = data.trim();
-        if (trimmedData) {
-          let isJsonRpc = false;
-          if (trimmedData.startsWith('{')) {
-            try {
-              const parsed = JSON.parse(trimmedData) as Record<string, unknown>;
-              isJsonRpc =
-                typeof parsed.jsonrpc === 'string' &&
-                (parsed.jsonrpc === '2.0' || parsed.jsonrpc === '1.0');
-            } catch {
-              isJsonRpc = false;
-            }
-          }
-          if (!isJsonRpc) {
-            logStorage.append(compositeKey, 'info', `[${serverName}] [STDOUT] ${data}`);
-          }
-        }
-      };
-    }
-    if ('onstderr' in transport) {
-      transport.onstderr = (data: string) => {
-        logStorage.append(compositeKey, 'error', `[${serverName}] [STDERR] ${data}`);
-      };
-    }
+    // Process stdout/stderr are persisted to logStorage by the transports
+    // themselves (see stdio-transport / streamable-http-local-transport), so no
+    // logStorage writes happen here to avoid duplicated, prefixed entries.
 
     return { transport };
   }
@@ -1417,18 +1393,32 @@ export class McpConnectionManager {
   }
 
   /**
-   * 判断错误是否为下游 session 失效（下游重启/会话过期后以旧 Mcp-Session-Id 发 POST，
-   * 下游返回 HTTP 400 + JSON-RPC -32000 "Bad Request: No valid session ID provided"，
-   * SDK StreamableHTTPClientTransport 将其包装为 StreamableHTTPError 抛出）。
+   * 判断错误是否为下游 session 失效（下游重启/会话过期后以旧 Mcp-Session-Id 发 POST）。
+   *
+   * 实际观察到两种下游响应：
+   * - HTTP 400 + JSON-RPC -32000 "Bad Request: No valid session ID provided"
+   * - HTTP 404 + JSON-RPC -32000 "Session not found"
+   * 两者都被 SDK StreamableHTTPClientTransport 包装为 StreamableHTTPError。
    *
    * 采用双重判断：错误必须是 SDK 的 StreamableHTTPError，且消息包含会话失效特征。
+   * 不按状态码判定，避免配置错误（如 URL 写错导致的 404）触发无限重连。
    */
   private isSessionInvalidError(error: unknown): boolean {
     if (!(error instanceof StreamableHTTPError)) {
       return false;
     }
     const message = error.message;
-    return typeof message === 'string' && message.includes('No valid session ID provided');
+    if (typeof message !== 'string') {
+      return false;
+    }
+    const normalized = message.toLowerCase();
+    const sessionInvalidPatterns = [
+      'no valid session id provided',
+      'session not found',
+      'session expired',
+      'invalid session id'
+    ];
+    return sessionInvalidPatterns.some((pattern) => normalized.includes(pattern));
   }
 
   /**

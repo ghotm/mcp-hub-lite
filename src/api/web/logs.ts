@@ -117,7 +117,7 @@ export async function webLogRoutes(fastify: FastifyInstance) {
   // DELETE /web/servers/:id/logs - Clear logs for a specific server
   fastify.delete<{ Params: { id: string } }>('/web/servers/:id/logs', async (request) => {
     const { id } = request.params;
-    logStorage.clearLogs(id);
+    logStorage.clearServerLogs(id);
     return {
       code: 200,
       message: 'Logs cleared',

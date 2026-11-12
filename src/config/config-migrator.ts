@@ -326,6 +326,8 @@ export function resolveInstanceConfig(
     args: [...(template.args || []), ...(targetInstance.args || [])],
     env: { ...template.env, ...targetInstance.env },
     headers: { ...template.headers, ...targetInstance.headers },
+    // 实例级 cwd 优先，未设置时回退模板级（两者都为空则由 transport 层回退到进程 cwd）
+    cwd: targetInstance.cwd || template.cwd,
     proxy: targetInstance.proxy || template.proxy,
     type: template.type,
     timeout: template.timeout,

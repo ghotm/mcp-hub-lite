@@ -28,6 +28,7 @@ export class StreamableHttpLocalTransport implements Transport {
   public onerror?: (error: Error) => void;
   public onmessage?: (message: JSONRPCMessage) => void;
   public onstderr?: (data: string) => void;
+  public onstdout?: (data: string) => void;
 
   constructor(
     private _command: string,
@@ -42,7 +43,8 @@ export class StreamableHttpLocalTransport implements Transport {
     compositeKey?: string,
     private _readyPatterns?: string[],
     private _readyTimeout: number = 120000,
-    logStorage?: LogStorageService
+    logStorage?: LogStorageService,
+    private _cwd?: string
   ) {
     this._serverName = serverName;
     this._compositeKey = compositeKey;
@@ -80,17 +82,34 @@ export class StreamableHttpLocalTransport implements Transport {
     this._process = ProcessLauncher.launch({
       command: this._command,
       args: this._args,
-      env: this._env
+      env: this._env,
+      cwd: this._cwd
     });
 
     // Register stderr → logStorage + onstderr callback
     if (this._process.stderr) {
       this._process.stderr.on('data', (chunk: Buffer) => {
-        const dataStr = chunk.toString('utf8').trim();
-        if (!dataStr) return;
-        this.onstderr?.(dataStr);
+        const rawData = chunk.toString('utf8');
+        const trimmedData = rawData.trim();
+        if (!trimmedData) return;
+        this.onstderr?.(trimmedData);
         if (this._logStorage && this._compositeKey) {
-          this._logStorage.append(this._compositeKey, 'info', dataStr);
+          // Store the raw chunk so indentation/newlines survive for the UI
+          this._logStorage.append(this._compositeKey, 'info', rawData);
+        }
+      });
+    }
+
+    // Register stdout → logStorage + onstdout callback (console-like output of the
+    // local process; MCP protocol traffic goes over HTTP, so stdout is free-form)
+    if (this._process.stdout) {
+      this._process.stdout.on('data', (chunk: Buffer) => {
+        const rawData = chunk.toString('utf8');
+        const trimmedData = rawData.trim();
+        if (!trimmedData) return;
+        this.onstdout?.(trimmedData);
+        if (this._logStorage && this._compositeKey) {
+          this._logStorage.append(this._compositeKey, 'info', rawData);
         }
       });
     }

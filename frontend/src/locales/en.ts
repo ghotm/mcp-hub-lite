@@ -177,6 +177,8 @@ export default {
       transportHttp: 'Streamable HTTP (streamableHttp)',
       transportStreamableHttpLocal: 'Local Process + HTTP (streamable-http-local)',
       executable: 'Executable',
+      cwd: 'Working Directory (cwd)',
+      cwdPlaceholder: 'Empty = current directory of the mcp-hub-lite process',
       args: 'Arguments',
       url: 'URL',
       env: 'Environment Variables',

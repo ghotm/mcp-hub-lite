@@ -1,5 +1,6 @@
 import { logger, LOG_MODULES } from '@utils/logger/index.js';
 import { eventBus, EventTypes } from '@services/event-bus.service.js';
+import { parseCompositeKey } from '@utils/composite-key.js';
 import type { LogLevel } from '@shared-types/common.types.js';
 
 export interface LogEntry {
@@ -50,7 +51,7 @@ export class LogStorageService {
    *
    * @param serverId - The unique identifier of the MCP server to log for
    * @param level - The log level (e.g., 'debug', 'info', 'warn', 'error')
-   * @param message - The log message content (will be trimmed of whitespace)
+   * @param message - The log message content, stored verbatim (indentation/newlines kept)
    * @returns The created LogEntry object containing timestamp, level, and message
    *
    * @example
@@ -63,7 +64,9 @@ export class LogStorageService {
     const logEntry: LogEntry = {
       timestamp: Date.now(),
       level,
-      message: message.trim()
+      // Preserve the raw message (including indentation and newlines) so that
+      // the UI can render process output exactly as the child process printed it.
+      message
     };
 
     if (!this.serverLogs.has(serverId)) {
@@ -81,9 +84,16 @@ export class LogStorageService {
     // Notify listeners
     this.notifyListeners(serverId, logEntry);
 
-    // Publish log event
+    // Publish log event. The WebSocket LogEvent contract is keyed by
+    // serverName/serverIndex, so derive them from the composite key and keep
+    // serverId for backwards compatibility.
+    const parsedKey = parseCompositeKey(serverId);
+    const serverName = parsedKey?.serverName ?? serverId;
+    const serverIndex = parsedKey?.serverIndex ?? 0;
     eventBus.publish(EventTypes.LOG_ENTRY, {
       serverId,
+      serverName,
+      serverIndex,
       logs: [logEntry]
     });
 
@@ -153,6 +163,36 @@ export class LogStorageService {
    */
   clearLogs(serverId: string): void {
     this.serverLogs.set(serverId, []);
+  }
+
+  /**
+   * Clears log entries for every instance of the given server name.
+   *
+   * The web API identifies servers by name while logs are stored under composite
+   * keys (`${serverName}-${serverIndex}`). This method clears the exact key (when
+   * it exists) plus all instance keys parsed back to the same server name. Using
+   * `parseCompositeKey` avoids deleting unrelated servers whose names merely start
+   * with the same prefix (e.g. clearing `foo` must not clear `foobar-0`).
+   *
+   * @param serverName - The logical server name whose instance logs should be cleared
+   *
+   * @example
+   * ```typescript
+   * // Clear logs for all instances of 'my-server'
+   * logStorage.clearServerLogs('my-server');
+   * ```
+   */
+  clearServerLogs(serverName: string): void {
+    for (const key of Array.from(this.serverLogs.keys())) {
+      if (key === serverName) {
+        this.serverLogs.set(key, []);
+        continue;
+      }
+      const parsedKey = parseCompositeKey(key);
+      if (parsedKey?.serverName === serverName) {
+        this.serverLogs.set(key, []);
+      }
+    }
   }
 
   /**

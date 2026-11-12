@@ -11,6 +11,8 @@ export interface InstanceConfigOverrides {
   args?: string[];
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  /** 本地进程工作目录（覆盖模板级 cwd） */
+  cwd?: string;
   proxy?: {
     url: string;
   };

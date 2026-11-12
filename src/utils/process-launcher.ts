@@ -4,6 +4,7 @@ import net from 'node:net';
 
 export interface LaunchedProcess {
   pid: number;
+  stdout: Readable;
   stderr: Readable;
   stop(): Promise<void>;
 }
@@ -12,6 +13,8 @@ export interface LaunchConfig {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** 子进程工作目录；undefined 时沿用父进程 cwd */
+  cwd?: string;
 }
 
 /**
@@ -25,11 +28,21 @@ export class ProcessLauncher {
   static launch(config: LaunchConfig): LaunchedProcess {
     const childProcess = spawn(config.command, config.args, {
       env: { ...process.env, ...(config.env || {}) },
+      cwd: config.cwd,
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    const stdoutStream = new PassThrough();
     const stderrStream = new PassThrough();
     let exited = false;
+
+    if (childProcess.stdout) {
+      childProcess.stdout.on('data', (chunk: Buffer) => {
+        if (!stdoutStream.writableEnded) {
+          stdoutStream.write(chunk);
+        }
+      });
+    }
 
     if (childProcess.stderr) {
       childProcess.stderr.on('data', (chunk: Buffer) => {
@@ -41,12 +54,18 @@ export class ProcessLauncher {
 
     childProcess.on('exit', () => {
       exited = true;
+      if (!stdoutStream.writableEnded) {
+        stdoutStream.end();
+      }
       if (!stderrStream.writableEnded) {
         stderrStream.end();
       }
     });
 
     childProcess.on('error', () => {
+      if (!stdoutStream.writableEnded) {
+        stdoutStream.end();
+      }
       if (!stderrStream.writableEnded) {
         stderrStream.end();
       }
@@ -74,6 +93,7 @@ export class ProcessLauncher {
 
     return {
       pid: childProcess.pid!,
+      stdout: stdoutStream,
       stderr: stderrStream,
       stop
     };

@@ -247,6 +247,54 @@ describe('Config Migrator', () => {
 
         expect(resolved).toBeNull();
       });
+
+      it('should apply template-level cwd when instance has no cwd', () => {
+        const config = SystemConfigSchema.parse({
+          servers: {
+            'cwd-server': {
+              template: { command: 'npx cwd-server', cwd: '/template/dir' },
+              instances: [{ id: 'inst-1' }]
+            }
+          }
+        });
+
+        const resolved = resolveInstanceConfig(config.servers['cwd-server'], 'inst-1');
+
+        expect(resolved).not.toBeNull();
+        expect(resolved!.cwd).toBe('/template/dir');
+      });
+
+      it('should let instance-level cwd override template cwd', () => {
+        const config = SystemConfigSchema.parse({
+          servers: {
+            'cwd-server': {
+              template: { command: 'npx cwd-server', cwd: '/template/dir' },
+              instances: [{ id: 'inst-1', cwd: '/instance/dir' }]
+            }
+          }
+        });
+
+        const resolved = resolveInstanceConfig(config.servers['cwd-server'], 'inst-1');
+
+        expect(resolved).not.toBeNull();
+        expect(resolved!.cwd).toBe('/instance/dir');
+      });
+
+      it('should leave cwd undefined when neither template nor instance sets it', () => {
+        const config = SystemConfigSchema.parse({
+          servers: {
+            'cwd-server': {
+              template: { command: 'npx cwd-server' },
+              instances: [{ id: 'inst-1' }]
+            }
+          }
+        });
+
+        const resolved = resolveInstanceConfig(config.servers['cwd-server'], 'inst-1');
+
+        expect(resolved).not.toBeNull();
+        expect(resolved!.cwd).toBeUndefined();
+      });
     });
   });
 

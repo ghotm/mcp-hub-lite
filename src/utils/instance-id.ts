@@ -61,6 +61,10 @@ export function generateInstanceId(
   if (instanceConfig.headers) {
     hashableContent.headers = instanceConfig.headers;
   }
+  // cwd 存在且非空时参与哈希，避免不同工作目录的实例 ID 冲突
+  if (instanceConfig.cwd) {
+    hashableContent.cwd = instanceConfig.cwd;
+  }
   if (instanceConfig.tags && Object.keys(instanceConfig.tags).length > 0) {
     hashableContent.tags = instanceConfig.tags;
   }

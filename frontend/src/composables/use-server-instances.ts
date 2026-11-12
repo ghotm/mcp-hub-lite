@@ -168,6 +168,7 @@ export function useServerInstances(
       args: rawInstance.args ?? [],
       env: rawInstance.env ?? {},
       headers: rawInstance.headers ?? {},
+      cwd: rawInstance.cwd,
       tags: rawInstance.tags ?? {},
       displayName: rawInstance.displayName,
       enabled: rawInstance.enabled !== undefined ? rawInstance.enabled : true
@@ -532,6 +533,7 @@ export function useServerInstances(
         if (config.args !== undefined) instance.args = config.args;
         if (config.env !== undefined) instance.env = config.env;
         if (config.headers !== undefined) instance.headers = config.headers;
+        if (config.cwd !== undefined) instance.cwd = config.cwd;
         if (config.tags !== undefined) instance.tags = config.tags;
         if (config.proxy !== undefined) instance.proxy = config.proxy;
         if (config.displayName !== undefined) instance.displayName = config.displayName;

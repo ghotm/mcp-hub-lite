@@ -47,7 +47,7 @@ export class TransportFactory {
             command: config.command,
             args: config.args,
             env: config.env,
-            cwd: process.cwd(),
+            cwd: config.cwd || process.cwd(),
             stderr: 'pipe'
           },
           server.name,
@@ -147,7 +147,8 @@ export class TransportFactory {
           compositeKey,
           options?.readyPatterns,
           options?.readyTimeout ?? 120000,
-          compositeKey ? logStorage : undefined
+          compositeKey ? logStorage : undefined,
+          config.cwd
         );
       }
 
@@ -205,7 +206,7 @@ export class TransportFactory {
           ...this.buildSystemEnv(server.command), // System environment variables
           ...(server.env || {}) // User-defined environment variables (can override system defaults)
         },
-        cwd: process.cwd(),
+        cwd: server.cwd,
         stderr: 'pipe'
       };
     } else if (type === 'sse') {
@@ -234,6 +235,7 @@ export class TransportFactory {
           ...this.buildSystemEnv(server.command), // System environment variables
           ...(server.env || {}) // User-defined environment variables
         },
+        cwd: server.cwd,
         url: server.url || '',
         headers: server.headers || {},
         timeout: server.timeout || 30000,

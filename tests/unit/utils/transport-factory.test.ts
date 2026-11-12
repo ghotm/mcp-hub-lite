@@ -41,6 +41,56 @@ describe('TransportFactory', () => {
       expect(config.url).toBe('');
       expect(config.timeout).toBe(30000);
     });
+
+    it('should pass through cwd for streamable-http-local', () => {
+      const config = TransportFactory['validateAndConvertConfig']({
+        type: 'streamable-http-local',
+        command: 'uvx',
+        url: 'http://localhost:3333/mcp',
+        cwd: '/work/dir',
+        name: 'test-server'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
+
+      expect(config.cwd).toBe('/work/dir');
+    });
+
+    it('should leave cwd undefined for streamable-http-local when not provided', () => {
+      const config = TransportFactory['validateAndConvertConfig']({
+        type: 'streamable-http-local',
+        command: 'uvx',
+        url: 'http://localhost:3333/mcp',
+        name: 'test-server'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
+
+      expect(config.cwd).toBeUndefined();
+    });
+
+    it('should pass through cwd for stdio', () => {
+      const config = TransportFactory['validateAndConvertConfig']({
+        type: 'stdio',
+        command: 'node',
+        args: ['server.js'],
+        cwd: '/work/dir',
+        name: 'test-server'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
+
+      expect(config.type).toBe('stdio');
+      expect(config.cwd).toBe('/work/dir');
+    });
+
+    it('should leave cwd undefined for stdio when not provided', () => {
+      const config = TransportFactory['validateAndConvertConfig']({
+        type: 'stdio',
+        command: 'node',
+        name: 'test-server'
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
+
+      expect(config.cwd).toBeUndefined();
+    });
   });
 
   describe('createTransport', () => {

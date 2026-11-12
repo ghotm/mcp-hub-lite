@@ -17,14 +17,12 @@
       </div>
     </div>
     <div
-      class="bg-gray-900 dark:bg-black p-4 rounded-lg font-mono text-sm flex-1 min-h-0 overflow-y-auto text-gray-300"
+      class="bg-gray-900 dark:bg-black p-4 rounded-lg font-mono text-sm flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-gray-300"
       ref="logsContainer"
     >
-      <div v-for="(log, index) in logs" :key="index" class="mb-1 break-words">
-        <span :class="getLogLevelColor(log.level)">
-          {{ formatTimestamp(log.timestamp) }} [{{ log.level.toUpperCase() }}]
-          {{ log.message }}
-        </span>
+      <!-- 保留后端原始文本的换行、缩进与连续空格，长行自动折行避免横向滚动 -->
+      <div v-for="(log, index) in logs" :key="index" class="mb-1 whitespace-pre-wrap break-words">
+        <span :class="getLogLevelColor(log.level)">{{ formatLogLine(log) }}</span>
       </div>
     </div>
   </div>
@@ -109,5 +107,13 @@ function getLogLevelColor(level: string) {
     default:
       return 'text-gray-300';
   }
+}
+
+/**
+ * 拼出单条日志文本。使用模板字符串而非模板内换行，
+ * 避免模板缩进被折叠进日志内容，同时保持时间戳与级别格式不变。
+ */
+function formatLogLine(log: LogEntry): string {
+  return `${formatTimestamp(log.timestamp)} [${log.level.toUpperCase()}] ${log.message}`;
 }
 </script>

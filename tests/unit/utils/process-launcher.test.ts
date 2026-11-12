@@ -23,6 +23,7 @@ describe('ProcessLauncher', () => {
     vi.clearAllMocks();
     mockChildProcess.removeAllListeners();
     mockChildProcess.stderr.removeAllListeners();
+    mockChildProcess.stdout.removeAllListeners();
     mockChildProcess.kill = vi.fn(() => {
       mockChildProcess.emit('exit', 0, 'SIGTERM');
     });
@@ -43,6 +44,7 @@ describe('ProcessLauncher', () => {
       });
       expect(proc.pid).toBe(12345);
       expect(proc.stderr).toBeDefined();
+      expect(proc.stdout).toBeDefined();
     });
 
     it('should emit stderr data through the returned stream', () => {
@@ -60,6 +62,35 @@ describe('ProcessLauncher', () => {
       mockChildProcess.stderr.emit('data', Buffer.from('world\n'));
 
       expect(chunks).toEqual(['hello\n', 'world\n']);
+    });
+
+    it('should emit stdout data through the returned stream', () => {
+      const proc = ProcessLauncher.launch({
+        command: 'uvx',
+        args: ['server', '--http']
+      });
+
+      const chunks: string[] = [];
+      proc.stdout.on('data', (chunk: Buffer) => {
+        chunks.push(chunk.toString());
+      });
+
+      mockChildProcess.stdout.emit('data', Buffer.from('  server started\n'));
+      mockChildProcess.stdout.emit('data', Buffer.from('\tlistening on 3333\n'));
+
+      expect(chunks).toEqual(['  server started\n', '\tlistening on 3333\n']);
+    });
+
+    it('should end the stdout stream when the process exits', () => {
+      const proc = ProcessLauncher.launch({
+        command: 'node',
+        args: ['test.js']
+      });
+
+      mockChildProcess.emit('exit', 0, null);
+
+      expect((proc.stdout as PassThrough).writableEnded).toBe(true);
+      expect((proc.stderr as PassThrough).writableEnded).toBe(true);
     });
   });
 

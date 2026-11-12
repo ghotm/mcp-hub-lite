@@ -3,12 +3,18 @@ import { PassThrough } from 'node:stream';
 
 // Mock ProcessLauncher
 const mockProcessStderr = new PassThrough();
+const mockProcessStdout = new PassThrough();
 // eslint-disable-next-line no-var
 var mockLaunchedProcess = {
   pid: 12345,
   stderr: mockProcessStderr,
+  stdout: mockProcessStdout,
   stop: vi.fn()
 };
+
+const mockLogStorage = {
+  append: vi.fn()
+} as unknown as LogStorageService;
 
 vi.mock('@utils/process-launcher.js', () => ({
   ProcessLauncher: {
@@ -38,6 +44,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 import { StreamableHttpLocalTransport } from '../../../src/utils/transports/streamable-http-local-transport.js';
 import { ProcessLauncher } from '@utils/process-launcher.js';
+import type { LogStorageService } from '../../../src/services/log-storage.service.js';
 
 describe('StreamableHttpLocalTransport', () => {
   let transport: StreamableHttpLocalTransport;
@@ -69,7 +76,8 @@ describe('StreamableHttpLocalTransport', () => {
       'test-server',
       'test-0',
       ['listening on'],
-      5000
+      5000,
+      mockLogStorage
     );
   });
 
@@ -213,6 +221,35 @@ describe('StreamableHttpLocalTransport', () => {
       // Wait a tick for async event processing
       await new Promise((resolve) => origSetTimeout(resolve, 10));
       expect(onstderr).toHaveBeenCalledWith('some log output');
+      // Raw (untrimmed) text is persisted so the UI keeps indentation/newlines
+      expect(mockLogStorage.append).toHaveBeenCalledWith('test-0', 'info', 'some log output\n');
+    });
+  });
+
+  describe('stdout forwarding', () => {
+    it('should write process stdout to logStorage and call onstdout callback', async () => {
+      const onstdout = vi.fn();
+      transport.onstdout = onstdout;
+
+      await transport.start();
+      mockProcessStdout.write(Buffer.from('  server says hello\n'));
+
+      // Wait a tick for async event processing
+      await new Promise((resolve) => origSetTimeout(resolve, 10));
+      expect(onstdout).toHaveBeenCalledWith('server says hello');
+      expect(mockLogStorage.append).toHaveBeenCalledWith('test-0', 'info', '  server says hello\n');
+    });
+
+    it('should skip whitespace-only stdout chunks', async () => {
+      const onstdout = vi.fn();
+      transport.onstdout = onstdout;
+
+      await transport.start();
+      mockProcessStdout.write(Buffer.from('   \n\t\n'));
+
+      await new Promise((resolve) => origSetTimeout(resolve, 10));
+      expect(onstdout).not.toHaveBeenCalled();
+      expect(mockLogStorage.append).not.toHaveBeenCalled();
     });
   });
 });

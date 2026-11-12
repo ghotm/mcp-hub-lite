@@ -37,6 +37,24 @@
         <el-input v-model="localConfig.template.command" />
       </div>
 
+      <!-- 工作目录 cwd（stdio + streamable-http-local） -->
+      <div
+        v-if="
+          localConfig.template.type === 'stdio' ||
+          localConfig.template.type === 'streamable-http-local'
+        "
+        class="px-4"
+      >
+        <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">{{
+          $t('serverDetail.config.cwd')
+        }}</label>
+        <el-input
+          v-model="localConfig.template.cwd"
+          clearable
+          :placeholder="$t('serverDetail.config.cwdPlaceholder')"
+        />
+      </div>
+
       <!-- Arguments (stdio + streamable-http-local) -->
       <div
         v-if="
@@ -372,6 +390,8 @@ function handleSave() {
   // Extract template configuration (including instanceSelectionStrategy)
   const templateConfig = {
     command: localConfig.value.template.command,
+    // 工作目录：必须显式枚举，否则保存时会被丢弃
+    cwd: localConfig.value.template.cwd,
     args: localConfig.value.template.args,
     env: localConfig.value.template.env,
     headers: localConfig.value.template.headers,

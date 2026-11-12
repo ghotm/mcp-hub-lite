@@ -70,6 +70,14 @@ function sessionInvalidError(): StreamableHTTPError {
   );
 }
 
+/** 构造 HTTP 404 + JSON-RPC -32000 "Session not found"（下游重启后的实际形态） */
+function sessionNotFoundError(): StreamableHTTPError {
+  return new StreamableHTTPError(
+    404,
+    'Error POSTing to endpoint: {"jsonrpc":"2.0","error":{"code":-32000,"message":"Session not found"}}'
+  );
+}
+
 describe('McpConnectionManager session 失效自动恢复', () => {
   let manager: McpConnectionManager;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,6 +130,40 @@ describe('McpConnectionManager session 失效自动恢复', () => {
       // 重连成功后连续失败计数清零
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).consecutiveReconnectFailures.has(COMPOSITE_KEY)).toBe(false);
+    });
+  });
+
+  describe('用例 1b：HTTP 404 "Session not found" → 自动重连成功 → 重试一次原调用', () => {
+    it('首次调用抛 404 Session not found，disconnect+connect 后重试成功并返回结果', async () => {
+      const connectSpy = vi.spyOn(manager, 'connect').mockResolvedValue(true);
+      const disconnectSpy = vi.spyOn(manager, 'disconnect').mockResolvedValue(undefined);
+      const expected = { content: [{ type: 'text', text: 'recovered-after-404' }] };
+      fakeClient.callTool
+        .mockRejectedValueOnce(sessionNotFoundError())
+        .mockResolvedValueOnce(expected);
+
+      const result = await manager.callTool(SERVER_NAME, SERVER_INDEX, TOOL_NAME, TOOL_ARGS);
+
+      expect(result).toEqual(expected);
+      expect(fakeClient.callTool).toHaveBeenCalledTimes(2);
+      expect(disconnectSpy).toHaveBeenCalledTimes(1);
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(connectSpy).toHaveBeenCalledWith(SERVER_NAME, SERVER_INDEX, serverConfig);
+    });
+
+    it('404 但非 session 失效消息不触发重连（避免配置错误反复重连）', async () => {
+      const connectSpy = vi.spyOn(manager, 'connect').mockResolvedValue(true);
+      const disconnectSpy = vi.spyOn(manager, 'disconnect').mockResolvedValue(undefined);
+      fakeClient.callTool.mockRejectedValue(
+        new StreamableHTTPError(404, 'Error POSTing to endpoint: not found')
+      );
+
+      await expect(
+        manager.callTool(SERVER_NAME, SERVER_INDEX, TOOL_NAME, TOOL_ARGS)
+      ).rejects.toThrow('not found');
+      expect(fakeClient.callTool).toHaveBeenCalledTimes(1);
+      expect(disconnectSpy).not.toHaveBeenCalled();
+      expect(connectSpy).not.toHaveBeenCalled();
     });
   });
 

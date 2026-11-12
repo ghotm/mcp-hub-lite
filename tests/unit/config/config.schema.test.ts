@@ -90,6 +90,27 @@ describe('Config Schema (v1.1)', () => {
       const result = ServerInstanceSchema.safeParse(instance);
       expect(result.success).toBe(false);
     });
+
+    it('should accept instance-level cwd', () => {
+      const result = ServerInstanceSchema.safeParse({
+        id: 'instance-1',
+        cwd: '/work/dir'
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.cwd).toBe('/work/dir');
+      }
+    });
+
+    it('should leave cwd undefined when not provided', () => {
+      const result = ServerInstanceSchema.safeParse({ id: 'instance-1' });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.cwd).toBeUndefined();
+      }
+    });
   });
 
   describe('ServerTemplateSchema', () => {
@@ -121,6 +142,24 @@ describe('Config Schema (v1.1)', () => {
         expect(result.data.env).toEqual({});
         expect(result.data.headers).toEqual({});
         expect(result.data.aggregatedTools).toEqual([]);
+      }
+    });
+
+    it('should accept template-level cwd', () => {
+      const result = ServerTemplateSchema.safeParse({ cwd: '/work/dir' });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.cwd).toBe('/work/dir');
+      }
+    });
+
+    it('should leave template cwd undefined when not provided', () => {
+      const result = ServerTemplateSchema.safeParse({});
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.cwd).toBeUndefined();
       }
     });
   });
@@ -295,6 +334,18 @@ describe('Config Schema (v1.1)', () => {
         expect(result.data.headers).toBeUndefined();
         expect(result.data.tags).toBeUndefined();
         expect(result.data.enabled).toBeUndefined();
+        expect(result.data.cwd).toBeUndefined();
+      }
+    });
+
+    it('should accept cwd in updates', () => {
+      const updates = { cwd: '/work/dir' };
+      const result = ServerInstanceUpdateSchema.safeParse(updates);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.cwd).toBe('/work/dir');
+        expect(result.data.args).toBeUndefined();
+        expect(result.data.env).toBeUndefined();
       }
     });
 

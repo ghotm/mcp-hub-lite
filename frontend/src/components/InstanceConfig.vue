@@ -106,6 +106,37 @@
         </div>
       </div>
 
+      <!-- 工作目录 cwd（stdio + streamable-http-local：模板只读 + 实例覆盖） -->
+      <div
+        v-if="templateConfig.type === 'stdio' || templateConfig.type === 'streamable-http-local'"
+        class="px-4"
+      >
+        <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+          {{ $t('serverDetail.config.cwd') }}
+        </label>
+
+        <!-- 模板 cwd（只读） -->
+        <div v-if="templateConfig.cwd" class="flex gap-2 items-start mb-3">
+          <el-input :model-value="templateConfig.cwd" disabled class="flex-1" />
+          <span class="text-xs text-gray-500 dark:text-gray-400 pt-2 whitespace-nowrap">
+            {{ $t('serverDetail.instanceConfig.fromTemplate') }}
+          </span>
+        </div>
+
+        <!-- 实例 cwd（可覆盖模板值） -->
+        <div class="flex gap-2 items-center">
+          <el-input
+            v-model="localConfig.cwd"
+            clearable
+            class="flex-1"
+            :placeholder="$t('serverDetail.config.cwdPlaceholder')"
+          />
+          <el-tag v-if="localConfig.cwd" size="small" type="success">
+            {{ $t('common.instance') }}
+          </el-tag>
+        </div>
+      </div>
+
       <!-- Arguments (stdio + streamable-http-local) -->
       <div
         v-if="templateConfig.type === 'stdio' || templateConfig.type === 'streamable-http-local'"
@@ -667,6 +698,11 @@ const mergedConfig = computed(() => {
 
   if (localConfig.value.proxy) {
     merged.proxy = localConfig.value.proxy;
+  }
+
+  // 实例级 cwd 覆盖模板值（模板值已通过展开 templateConfig 带入）
+  if (localConfig.value.cwd) {
+    merged.cwd = localConfig.value.cwd;
   }
 
   if (localConfig.value.tags && Object.keys(localConfig.value.tags).length > 0) {

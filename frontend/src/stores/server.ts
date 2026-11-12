@@ -451,6 +451,8 @@ export const useServerStore = defineStore('server', () => {
         if (serverData.config.type) payload.type = serverData.config.type;
         if (serverData.config.description !== undefined)
           payload.description = serverData.config.description;
+        // 工作目录（仅 stdio / streamable-http-local 生效）
+        if (serverData.config.cwd !== undefined) payload.cwd = serverData.config.cwd;
         // Include instance selection strategy from template
         if (server.rawV11Config?.template.instanceSelectionStrategy !== undefined) {
           payload.instanceSelectionStrategy =

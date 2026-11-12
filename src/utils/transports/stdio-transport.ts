@@ -120,21 +120,23 @@ export class StdioTransport implements Transport {
     // Handle stderr data by listening to the transport's stderr stream
     if (this._transport.stderr) {
       this._transport.stderr.on('data', (chunk: Buffer | string) => {
-        const dataStr = chunk.toString('utf8').trim();
-        if (!dataStr) return;
+        const rawData = chunk.toString('utf8');
+        const trimmedData = rawData.trim();
+        if (!trimmedData) return;
 
-        // Forward raw stderr data
-        this.onstderr?.(dataStr);
+        // Forward trimmed stderr data (existing callback contract)
+        this.onstderr?.(trimmedData);
 
         // Log stderr output (per MCP spec, stderr is not necessarily errors)
         const serverIdentifier = this._compositeKey || this._serverName || 'Unknown Server';
-        logger.serverLog('info', serverIdentifier, dataStr, {
+        logger.serverLog('info', serverIdentifier, trimmedData, {
           pid: this.pid,
           module: LOG_MODULES.STDERR.module
         });
 
         if (this._logStorage && this._compositeKey) {
-          this._logStorage.append(this._compositeKey, 'info', dataStr);
+          // Store the raw chunk so indentation/newlines survive for the UI
+          this._logStorage.append(this._compositeKey, 'info', rawData);
         }
 
         // Also write to our PassThrough stream for compatibility
