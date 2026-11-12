@@ -129,7 +129,7 @@
             v-model="localConfig.cwd"
             clearable
             class="flex-1"
-            :placeholder="$t('serverDetail.config.cwdPlaceholder')"
+            :placeholder="$t('serverDetail.config.instanceCwdPlaceholder')"
           />
           <el-tag v-if="localConfig.cwd" size="small" type="success">
             {{ $t('common.instance') }}

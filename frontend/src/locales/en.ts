@@ -178,7 +178,9 @@ export default {
       transportStreamableHttpLocal: 'Local Process + HTTP (streamable-http-local)',
       executable: 'Executable',
       cwd: 'Working Directory (cwd)',
-      cwdPlaceholder: 'Empty = current directory of the mcp-hub-lite process',
+      cwdPlaceholder: 'Absolute path; empty = current directory of the mcp-hub-lite process',
+      instanceCwdPlaceholder:
+        'Empty = inherit template cwd; falls back to the process directory when unset',
       args: 'Arguments',
       url: 'URL',
       env: 'Environment Variables',

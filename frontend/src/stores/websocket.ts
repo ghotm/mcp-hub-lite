@@ -38,6 +38,14 @@ export const useWebSocketStore = defineStore('websocket', () => {
   const serverStore = useServerStore();
 
   /**
+   * 每个 server 当前正在查看日志的实例 index。
+   *
+   * 日志页只持有一份 server.logs，必须据此过滤实时事件，否则多实例 server 会把
+   * 其它实例的输出混进当前实例；同时用于丢弃切换实例后迟到的历史响应。
+   */
+  const logViewInstanceIndex = new Map<string, number>();
+
+  /**
    * Fetch historical logs from the server
    */
   function fetchLogs(
@@ -46,6 +54,7 @@ export const useWebSocketStore = defineStore('websocket', () => {
     limit: number = 100,
     since?: number
   ): void {
+    logViewInstanceIndex.set(serverName, serverIndex);
     if (wsClient.value) {
       wsClient.value.send({
         type: 'fetch-logs',
@@ -202,29 +211,38 @@ export const useWebSocketStore = defineStore('websocket', () => {
   }
 
   function handleLogEntry(message: LogEvent): void {
-    const { serverName, logs } = message.data;
+    const { serverName, serverIndex, logs, isHistory } = message.data;
     const server = serverStore.servers.find((s) => s.id === serverName);
-    if (server && logs && logs.length > 0) {
-      // If it's a complete log (more than 1 entry), replace existing logs
-      if (logs.length > 1) {
-        server.logs = logs;
-      } else {
-        // Incremental log, append to existing logs
-        const logEntry = logs[0];
-        if (logEntry && logEntry.timestamp) {
-          server.logs.push({
-            timestamp: logEntry.timestamp,
-            level: logEntry.level,
-            message: logEntry.message
-          });
-        }
-      }
+    if (!server) return;
 
-      // Limit log entries to prevent memory leaks
-      const maxLogs = 1000;
-      if (server.logs.length > maxLogs) {
-        server.logs.splice(0, server.logs.length - maxLogs);
-      }
+    // 只处理当前正在查看的实例；切换实例后迟到的旧响应直接丢弃
+    const activeIndex = logViewInstanceIndex.get(serverName);
+    if (activeIndex !== undefined && activeIndex !== serverIndex) {
+      return;
+    }
+
+    if (isHistory) {
+      // fetch-logs 的历史响应：无条件替换（包括空数组，修复切换实例后残留旧日志）
+      server.logs = logs ?? [];
+      return;
+    }
+
+    if (!logs || logs.length === 0) return;
+
+    // 实时增量事件：逐条追加
+    for (const logEntry of logs) {
+      if (!logEntry || !logEntry.timestamp) continue;
+      server.logs.push({
+        timestamp: logEntry.timestamp,
+        level: logEntry.level,
+        message: logEntry.message
+      });
+    }
+
+    // Limit log entries to prevent memory leaks
+    const maxLogs = 1000;
+    if (server.logs.length > maxLogs) {
+      server.logs.splice(0, server.logs.length - maxLogs);
     }
   }
 

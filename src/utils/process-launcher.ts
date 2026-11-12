@@ -63,6 +63,8 @@ export class ProcessLauncher {
     });
 
     childProcess.on('error', () => {
+      // spawn 失败（如 cwd 不存在）时不会触发 exit，标记已退出让 stop() 立即返回
+      exited = true;
       if (!stdoutStream.writableEnded) {
         stdoutStream.end();
       }
@@ -70,6 +72,10 @@ export class ProcessLauncher {
         stderrStream.end();
       }
     });
+
+    if (childProcess.pid === undefined) {
+      throw new Error(`Failed to spawn "${config.command}" (cwd: ${config.cwd ?? process.cwd()})`);
+    }
 
     const stop = (): Promise<void> => {
       if (!childProcess || exited) return Promise.resolve();

@@ -81,6 +81,31 @@ describe('ProcessLauncher', () => {
       expect(chunks).toEqual(['  server started\n', '\tlistening on 3333\n']);
     });
 
+    it('should pass cwd to spawn when configured', async () => {
+      const { spawn } = await import('node:child_process');
+      ProcessLauncher.launch({
+        command: 'node',
+        args: ['server.js'],
+        cwd: '/tmp/opencode'
+      });
+
+      expect(spawn).toHaveBeenCalledWith(
+        'node',
+        ['server.js'],
+        expect.objectContaining({ cwd: '/tmp/opencode' })
+      );
+    });
+
+    it('should throw immediately when spawn fails (pid undefined)', () => {
+      (mockChildProcess as { pid?: number }).pid = undefined;
+
+      expect(() => ProcessLauncher.launch({ command: 'missing', args: [] })).toThrow(
+        'Failed to spawn "missing"'
+      );
+
+      (mockChildProcess as { pid?: number }).pid = 12345;
+    });
+
     it('should end the stdout stream when the process exits', () => {
       const proc = ProcessLauncher.launch({
         command: 'node',

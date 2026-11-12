@@ -98,6 +98,26 @@ describe('LogStorageService', () => {
       expect(storage.getLogCount('my-server-1-0')).toBe(0);
       expect(storage.getLogCount('my-server-0')).toBe(1);
     });
+
+    it('目标键同时是其他 server 的复合键时不误清（foo-1）', () => {
+      storage.append('foo-0', 'info', 'foo instance 0');
+      storage.append('foo-1', 'info', 'foo instance 1');
+      storage.append('foo-1-0', 'info', 'server foo-1 instance 0');
+
+      storage.clearServerLogs('foo-1');
+
+      expect(storage.getLogCount('foo-1-0')).toBe(0);
+      // 'foo-1' 解析为 server foo 的实例 1，必须保留
+      expect(storage.getLogs('foo-1').map((log) => log.message)).toEqual(['foo instance 1']);
+      expect(storage.getLogCount('foo-0')).toBe(1);
+    });
+
+    it('清空后移除 Map 键，不再被 getServersWithLogs 枚举', () => {
+      storage.append('foo-0', 'info', 'a');
+      storage.clearServerLogs('foo');
+
+      expect(storage.getServersWithLogs()).not.toContain('foo-0');
+    });
   });
 
   describe('LOG_ENTRY 事件', () => {

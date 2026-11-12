@@ -169,10 +169,10 @@ export class LogStorageService {
    * Clears log entries for every instance of the given server name.
    *
    * The web API identifies servers by name while logs are stored under composite
-   * keys (`${serverName}-${serverIndex}`). This method clears the exact key (when
-   * it exists) plus all instance keys parsed back to the same server name. Using
-   * `parseCompositeKey` avoids deleting unrelated servers whose names merely start
-   * with the same prefix (e.g. clearing `foo` must not clear `foobar-0`).
+   * keys (`${serverName}-${serverIndex}`). This method removes every key parsed
+   * back to the same server name (plus a non-composite key equal to the name).
+   * Using `parseCompositeKey` avoids deleting unrelated servers whose names merely
+   * start with the same prefix (e.g. clearing `foo` must not clear `foobar-0`).
    *
    * @param serverName - The logical server name whose instance logs should be cleared
    *
@@ -184,13 +184,13 @@ export class LogStorageService {
    */
   clearServerLogs(serverName: string): void {
     for (const key of Array.from(this.serverLogs.keys())) {
-      if (key === serverName) {
-        this.serverLogs.set(key, []);
-        continue;
-      }
       const parsedKey = parseCompositeKey(key);
-      if (parsedKey?.serverName === serverName) {
-        this.serverLogs.set(key, []);
+      // 复合键按解析出的 serverName 匹配；解析失败时才按原始键精确匹配。
+      // 注意不能无条件比较 `key === serverName`：`foo-1` 可能既是 server `foo-1`
+      // 的原始键，也是 server `foo` 实例 1 的复合键，会导致误清。
+      const matches = parsedKey ? parsedKey.serverName === serverName : key === serverName;
+      if (matches) {
+        this.serverLogs.delete(key);
       }
     }
   }

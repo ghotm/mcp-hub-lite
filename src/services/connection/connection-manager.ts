@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -326,6 +327,9 @@ export class McpConnectionManager {
           await this.requestLoggingFromServer(compositeKey, client);
         }
 
+        // 缓存完整配置，供 session 失效后自动重连复用（与 connect() 保持一致）
+        this.serverConfigCache.set(compositeKey, server);
+
         return true;
       } catch (error) {
         lastError = await this.handleConnectionError(
@@ -378,6 +382,19 @@ export class McpConnectionManager {
     ) {
       const displayType = server.type === 'http' ? 'streamable-http' : server.type;
       throw new Error(`${displayType.toUpperCase()} server requires a valid URL`);
+    }
+
+    // 本地进程自定义 cwd 时提前校验，避免 spawn 异步失败后一直等到端口/就绪超时
+    if ((server.type === 'stdio' || server.type === 'streamable-http-local') && server.cwd) {
+      let isDirectory = false;
+      try {
+        isDirectory = statSync(server.cwd).isDirectory();
+      } catch {
+        isDirectory = false;
+      }
+      if (!isDirectory) {
+        throw new Error(`Working directory does not exist or is not a directory: ${server.cwd}`);
+      }
     }
   }
 
@@ -765,11 +782,12 @@ export class McpConnectionManager {
   ): void {
     const errorMessage = lastError?.message || 'Connection failed after all retries';
 
-    // Fetch recent error logs (stderr) to help diagnose startup failures
-    const recentErrorLogs = logStorage.getLogs(compositeKey, { level: 'error', limit: 10 });
+    // Fetch recent process output (stderr/stdout are stored as 'info' by transports)
+    // to help diagnose startup failures.
+    const recentProcessLogs = logStorage.getLogs(compositeKey, { limit: 10 });
     const logDetail =
-      recentErrorLogs.length > 0
-        ? '\n\n--- Recent stderr output ---\n' + recentErrorLogs.map((l) => l.message).join('\n')
+      recentProcessLogs.length > 0
+        ? '\n\n--- Recent process output ---\n' + recentProcessLogs.map((l) => l.message).join('\n')
         : '';
 
     // Write connection error to logStorage so it appears in the log viewer
@@ -1454,15 +1472,34 @@ export class McpConnectionManager {
       await this.disconnect(serverName, serverIndex);
       const ok = await this.connect(serverName, serverIndex, server);
       if (ok) {
-        // 重连成功 → 连续失败计数清零（下次再 session 失效仍走恢复流程）
-        this.consecutiveReconnectFailures.delete(compositeKey);
         const client = this.clients.get(compositeKey);
         if (!client) {
           throw new Error(`Server [${compositeKey}] 重连后客户端不可用`);
         }
         // 重试一次原调用（与首次调用一致地取模板超时时间）
         const requestTimeout = this.getRequestTimeout(serverName);
-        return await this.doCallTool(client, toolName, args, requestTimeout);
+        try {
+          const result = await this.doCallTool(client, toolName, args, requestTimeout);
+          // 只有“重连且重试”都成功才清零，避免下游持续失效时每次调用都重连
+          this.consecutiveReconnectFailures.delete(compositeKey);
+          return result;
+        } catch (retryError) {
+          if (!this.isSessionInvalidError(retryError)) {
+            throw retryError;
+          }
+          // 重连成功但 session 仍失效：计入连续失败，达到阈值后放弃
+          const failures = (this.consecutiveReconnectFailures.get(compositeKey) ?? 0) + 1;
+          this.consecutiveReconnectFailures.set(compositeKey, failures);
+          if (failures >= MAX_CONSECUTIVE_RECONNECT_FAILURES) {
+            this.consecutiveReconnectFailures.delete(compositeKey);
+            throw new Error(
+              `Server [${compositeKey}] session 失效后连续重连失败 ${failures} 次，放弃自动恢复`
+            );
+          }
+          throw new Error(
+            `Server [${compositeKey}] 重连后 session 仍失效（第 ${failures}/${MAX_CONSECUTIVE_RECONNECT_FAILURES} 次）`
+          );
+        }
       }
 
       // 重连失败：连续失败计数累计

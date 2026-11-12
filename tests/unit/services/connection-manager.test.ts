@@ -167,6 +167,30 @@ describe('McpConnectionManager session 失效自动恢复', () => {
     });
   });
 
+  describe('用例 1c：重连成功但重试仍 session 失效', () => {
+    it('连续 3 次后放弃，避免每次工具调用都反复重连', async () => {
+      vi.spyOn(manager, 'connect').mockResolvedValue(true);
+      vi.spyOn(manager, 'disconnect').mockResolvedValue(undefined);
+      // 每次 callTool 的首次调用与重试都抛 session 失效
+      fakeClient.callTool.mockRejectedValue(sessionNotFoundError());
+
+      await expect(
+        manager.callTool(SERVER_NAME, SERVER_INDEX, TOOL_NAME, TOOL_ARGS)
+      ).rejects.toThrow('重连后 session 仍失效（第 1/3 次）');
+      await expect(
+        manager.callTool(SERVER_NAME, SERVER_INDEX, TOOL_NAME, TOOL_ARGS)
+      ).rejects.toThrow('重连后 session 仍失效（第 2/3 次）');
+      await expect(
+        manager.callTool(SERVER_NAME, SERVER_INDEX, TOOL_NAME, TOOL_ARGS)
+      ).rejects.toThrow('连续重连失败 3 次，放弃自动恢复');
+
+      // 达到阈值后计数清零，下次重新累计
+      await expect(
+        manager.callTool(SERVER_NAME, SERVER_INDEX, TOOL_NAME, TOOL_ARGS)
+      ).rejects.toThrow('重连后 session 仍失效（第 1/3 次）');
+    });
+  });
+
   describe('用例 2：连续重连失败计数跨调用累计，达到阈值后放弃', () => {
     it('前两次抛"第N次"错误，第 3 次抛最终错误，之后重新累计', async () => {
       const connectSpy = vi.spyOn(manager, 'connect').mockResolvedValue(false);

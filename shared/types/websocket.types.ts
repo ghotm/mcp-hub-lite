@@ -89,6 +89,8 @@ export interface LogEvent {
       message: string;
       timestamp: number;
     }>;
+    /** fetch-logs 的历史响应为 true；实时增量事件不带该字段 */
+    isHistory?: boolean;
   };
 }
 

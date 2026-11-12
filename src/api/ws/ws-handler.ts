@@ -128,7 +128,8 @@ export class WebSocketHandler {
       data: {
         serverName: message.serverName,
         serverIndex: message.serverIndex,
-        logs: logs
+        logs: logs,
+        isHistory: true
       }
     } as ServerMessage);
   }
