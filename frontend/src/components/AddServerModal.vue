@@ -89,6 +89,13 @@
         <el-form-item :label="$t('serverDetail.config.executable')">
           <el-input v-model="form.command" :placeholder="$t('addServer.executablePlaceholder')" />
         </el-form-item>
+        <el-form-item :label="$t('serverDetail.config.cwd')">
+          <el-input
+            v-model="form.cwd"
+            clearable
+            :placeholder="$t('serverDetail.config.cwdPlaceholder')"
+          />
+        </el-form-item>
         <el-form-item :label="$t('serverDetail.config.args')">
           <div
             class="w-full flex flex-col gap-2"
@@ -357,6 +364,7 @@ const form = ref({
   name: '',
   description: '',
   command: '',
+  cwd: '',
   args: [] as string[],
   url: '',
   timeout: 60,
@@ -391,10 +399,12 @@ function importJson() {
       form.value.command = configToUse.command || '';
       form.value.args = configToUse.args || [];
       form.value.url = configToUse.url || '';
+      form.value.cwd = configToUse.cwd || '';
     } else if (configToUse.command) {
       form.value.transport = 'stdio';
       form.value.command = configToUse.command;
       form.value.args = configToUse.args || [];
+      form.value.cwd = configToUse.cwd || '';
     } else if (configToUse.url) {
       // Only use sse if explicitly specified, otherwise default to streamable-http
       form.value.transport = configToUse.type === 'sse' ? 'sse' : 'streamable-http';
@@ -506,6 +516,7 @@ function resetForm() {
     name: '',
     description: '',
     command: '',
+    cwd: '',
     args: [],
     url: '',
     timeout: 60,
@@ -559,6 +570,12 @@ async function createServer() {
       config: {
         type: form.value.transport,
         command: form.value.command,
+        // 工作目录仅对本地启动的传输生效，避免把远程类型也写入无意义字段
+        cwd:
+          (form.value.transport === 'stdio' || form.value.transport === 'streamable-http-local') &&
+          form.value.cwd
+            ? form.value.cwd
+            : undefined,
         args: form.value.args.filter((a) => a),
         url: form.value.url,
         timeout: form.value.timeout * 1000,
